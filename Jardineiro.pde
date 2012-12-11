@@ -1,92 +1,167 @@
-const long sleepTime = 10*1000;
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+
+byte debug = 0;
+
+long sleepTime = 300000; // 5 minutes * 60 seconds * 1000 mili-seconds
 const int sampleInterval = 500;
 const int samples = 10;
-const byte debug = 0;
 
-const byte ledPin = 12;
-const byte lightSensorPin = A0;
-const byte tempSensorPin = A1;
-const byte moistureSensorPin = A2;
+const byte batteryMonitorPin = A0;
+const byte lightSensorPin = A1;
+const byte moistureSensorPin1 = A2;
+const byte moistureSensorPin2 = A3;
+const byte moistureSensorPin3 = A4;
+const byte ledPin = 13;
+const byte XBeeDTR = 2;
+const byte temperaturePin = 3;
 
-const char instance[] = {
-  "BigSensorUnit1"};
+const float batVoltDivRatio = 1.496; // (Vin / Vout) obtained experimentaly
+
+const char instance[] = "MiniGardener1";
+
+OneWire oneWireSensor(temperaturePin);
+DallasTemperature temperatureSensors(&oneWireSensor);
 
 void setup() {
-  Serial.begin(9600);
-  pinMode(ledPin, OUTPUT);
+    Serial.begin(9600);
+    pinMode(ledPin, OUTPUT);
+    pinMode(XBeeDTR, OUTPUT);
+    temperatureSensors.begin();
 }
 
 void loop() {
 
-  sampleSensors();
+    sampleSensors();
 
-
-  if (debug){
-    Serial.print("Sampling done, now sleeping  ");
-    Serial.print(sleepTime/1000, DEC);
-    Serial.println(" seconds until next round");
-  }
-  delay(sleepTime);
+    if (debug){
+        Serial.println(String("DEBUG::Sampling done, sleeping 10s"));
+        delay(10000);
+    }
+    else {
+        delay(sleepTime);
+    }
 }
 
 
 void sampleSensors() {
-  long lightSum = 0;
-  long tempSum = 0;
-  long moistSum = 0;
-  digitalWrite(ledPin, HIGH);
-  for (int i=0; i<samples; i++) {
-    int lightValue = analogRead(lightSensorPin);
-    lightSum += lightValue;
-    if (debug) {
-      Serial.print("Just read Light: ");
-      Serial.print(lightValue, DEC);
-      Serial.print(" (");
-      Serial.print(lightSum, DEC);
-      Serial.println(")");
-    }
-    int tempValue = analogRead(tempSensorPin);
-    tempSum += tempValue;
-    if (debug) {
-      Serial.print("Just read Temperature:  ");
-      Serial.print(tempValue, DEC);
-      Serial.print(" (");
-      Serial.print(tempSum, DEC);
-      Serial.println(")");
-    }
-    int moistValue = analogRead(moistureSensorPin);
-    moistSum += moistValue;
-    if (debug) {
-      Serial.print("Just read Moisture:  ");
-      Serial.print(moistValue, DEC);
-      Serial.print(" (");
-      Serial.print(moistSum, DEC);
-      Serial.println(")");
-    }
-    delay(sampleInterval);
-  }
-  digitalWrite(ledPin, HIGH);
+    long lightSum = 0;
+    float tempSum = 0;
+    long moistSum1 = 0;
+    long moistSum2 = 0;
+    long moistSum3 = 0;
+    long batVoltageSum = 0;
+    for (int i=0; i<samples; i++) {
+        if (debug) {
+            digitalWrite(ledPin, HIGH);
+        }
 
-  float temperature = float(tempSum) / float(samples) * 0.2222 - 61.11;
-  float light = float(lightSum) / float(samples);
-  float moisture = float(moistSum) / float(samples);
+        // Battery
+        int batVoltageValue = analogRead(batteryMonitorPin);
+        batVoltageSum += batVoltageValue;
 
-  reportValues(temperature, light, moisture);
+        // Temperature
+        temperatureSensors.requestTemperatures();
+        float tempValue = temperatureSensors.getTempCByIndex(0);
+        tempSum += tempValue;
+
+        // Light
+        int lightValue = analogRead(lightSensorPin);
+        lightSum += lightValue;
+
+        // Moisture 1
+        int moistValue1 = analogRead(moistureSensorPin1);
+        moistSum1 += moistValue1;
+
+        // Moisture 2
+        int moistValue2 = analogRead(moistureSensorPin2);
+        moistSum2 += moistValue2;
+
+        // Moisture 3
+        int moistValue3 = analogRead(moistureSensorPin3);
+        moistSum3 += moistValue3;
+
+        if (debug) {
+            String message = String("DEBUG::" + String(i+1));
+            message += ("::id:" + String(instance));
+            message += String("::b:" + floatToString(batVoltageValue));
+            message += String("::t:" + floatToString(tempValue));
+            message += String("::l:" + floatToString(lightValue));
+            message += String("::m1:" + floatToString(moistValue1));
+            message += String("::m2:" + floatToString(moistValue2));
+            message += String("::m3:" + floatToString(moistValue3));
+            Serial.println(message);
+            digitalWrite(ledPin, LOW);
+        }
+        delay(sampleInterval);
+    }
+
+    float batVoltage = float(batVoltageSum) / float(samples) * 3.3 / float(1024) * float(batVoltDivRatio);
+    float temperature = float(tempSum) / float(samples);
+    float light = float(lightSum) / float(samples);
+    float moisture1 = float(moistSum1) / float(samples);
+    float moisture2 = float(moistSum2) / float(samples);
+    float moisture3 = float(moistSum3) / float(samples);
+
+    reportValues(batVoltage, temperature, light, moisture1, moisture2, moisture3);
 }
 
 
-void reportValues ( float temp, float light, float moisture ) {
-  digitalWrite(ledPin, HIGH);
-  Serial.print("id:");
-  Serial.print(instance);
-  Serial.print("::");
-  
-  Serial.print("t:");
-  Serial.print(temp, 2);
-  Serial.print("::l:");
-  Serial.print(light, 2);
-  Serial.print("::m:");
-  Serial.println(moisture, 2);
-  digitalWrite(ledPin, LOW);
+void reportValues ( float batVoltage, float temperature, float light, float moisture1, float moisture2, float moisture3 ) {
+    wakeXBee();
+    String message = String("id:" + String(instance));
+    message += String("::b:" + floatToString(batVoltage));
+    message += String("::t:" + floatToString(temperature));
+    message += String("::l:" + floatToString(light));
+    message += String("::m1:" + floatToString(moisture1));
+    message += String("::m2:" + floatToString(moisture2));
+    message += String("::m3:" + floatToString(moisture3));
+    Serial.println(message);
+    if (Serial.available() > 0) {
+        if (Serial.read() == 'd'){
+            debug = !debug;
+            if (debug) {
+                Serial.println("DEBUG::Turning debug on");
+            }
+            else {
+                Serial.println("DEBUG::Turning debug off");
+            }
+        }
+        Serial.flush();
+    }
+    sleepXBee();
 }
+
+
+void wakeXBee() {
+    if (debug) {
+        Serial.println("DEBUG::Debug on, Not waking up the XBee module");
+        return;
+    }
+    digitalWrite(XBeeDTR, LOW);
+    delay(1000);
+}
+
+
+void sleepXBee() {
+    if (debug) {
+        Serial.println("DEBUG::Debug on, Not putting the XBee module to sleep");
+        return;
+    }
+    digitalWrite(XBeeDTR, HIGH);
+}
+
+String floatToString(float val) {
+    int intPart = int(val);
+    int decPart = int((val-int(val))*100);
+    String floatString = String(intPart);
+    floatString += String('.');
+    floatString += String(decPart);
+    return floatString;
+}
+
+
+
+
 
