@@ -6,11 +6,14 @@ before_install:
   - export DISPLAY=:1.0
   - wget http://downloads.arduino.cc/arduino-1.6.7-linux64.tar.xz
   - tar xf arduino-1.6.7-linux64.tar.xz
+  - wget https://github.com/milesburton/Arduino-Temperature-Control-Library/archive/3.7.6.tar.gz
+  - tar xf 3.7.6.tar.gz
+  - mv Arduino-Temperature-Control-Library-3.7.6 arduino-1.6.7/libraries/DallasTemperature
   - sudo mv arduino-1.6.7 /usr/local/share/arduino
   - sudo ln -s /usr/local/share/arduino/arduino /usr/local/bin/arduino
 
 install:
-  - arduino --install-library "OneWire, DallasTemperature"
+  - arduino --install-library "OneWire"
 
 script:
   - arduino --verify --board ${BOARD} $PWD/Jardineiro/Jardineiro.pde
